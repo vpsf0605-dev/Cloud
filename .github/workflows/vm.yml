@@ -1,31 +1,16 @@
-name: ZUNRDP_VM_SYSTEM
-on:
-  workflow_dispatch:
-    inputs:
-      owner_name: { required: true }
-      ts_key: { required: true }
-
+name: ZunRdp Cloud
+on: workflow_dispatch
 jobs:
-  deploy:
+  build:
     runs-on: windows-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Windows & Tailscale
-        shell: powershell
+      - name: Preparing System
         run: |
-          curl.exe -L -o ts.exe https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe
-          Start-Process -FilePath "ts.exe" -ArgumentList "/quiet", "/norestart" -Wait
-          & "C:\Program Files\Tailscale\tailscale.exe" up --authkey="${{ github.event.inputs.ts_key }}" --hostname="ZUN-${{ github.run_id }}"
-          $p = -join ((65..90) + (97..122) + (48..57) | Get-Random -Count 10 | % {[char]$_})
-          $s = ConvertTo-SecureString $p -AsPlainText -Force
-          New-LocalUser -Name "ZunRDP" -Password $s
-          Add-LocalGroupMember -Group "Administrators" -Member "ZunRDP"
-          $p | Out-File -FilePath "pass.txt" -Encoding utf8
-          # Lưu thời gian bắt đầu (Unix timestamp)
-          [DateTimeOffset]::Now.ToUnixTimeMilliseconds() | Out-File -FilePath "uptime.txt"
-
-      - name: Run Agent
-        run: powershell -File zunrdp.ps1 -Owner "${{ github.event.inputs.owner_name }}" -MachineID "ZUN-${{ github.run_id }}"
-        
+          # Ép tạo User ngay lập tức ở bước chuẩn bị
+          net user ZunRdp ZunRdp@2026@Cloud /add /y
+          net localgroup Administrators ZunRdp /add
+      - name: Running ZunRdp Script
+        run: |
+          Invoke-WebRequest -Uri "https://raw.githubusercontent.com/${{ github.repository }}/main/zunrdp.ps1" -OutFile "zunrdp.ps1"
+          powershell -ExecutionPolicy Bypass -File "zunrdp.ps1" -OWNER_NAME "${{ github.actor }}"
+          
