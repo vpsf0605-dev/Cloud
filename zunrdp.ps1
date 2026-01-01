@@ -1,46 +1,44 @@
 # ==========================================================
-# ZUNRDP CLOUD - FIXED IP PUBLIC & AUTH
+# ZUNRDP CLOUD - FIX AUTH & TAILSCALE IP
 # ==========================================================
 Param([string]$OWNER_NAME)
 
 $API = "https://zunrdp-default-rtdb.asia-southeast1.firebasedatabase.app"
 $VM_ID = "ZUN-" + (Get-Random -Minimum 1000 -Maximum 9999)
 $USER_FIXED = "ZunRdp"
-$PASS_FIXED = "ZunRdp@2026"
+$PASS_FIXED = "ZunRdp@2026Aa" # Thêm chữ 'Aa' để đảm bảo cực kỳ bảo mật, tránh lỗi hệ thống
 
-# --- 1. TẠO USER ĐĂNG NHẬP CHUẨN ---
-net user $USER_FIXED $PASS_FIXED /add
+Write-Host "[*] Dang tao User: $USER_FIXED" -ForegroundColor Cyan
+
+# --- 1. TAO USER BANG NET USER (ON DINH HON) ---
+net user $USER_FIXED $PASS_FIXED /add /passwordchg:no
 net localgroup Administrators $USER_FIXED /add
 net localgroup "Remote Desktop Users" $USER_FIXED /add
 
-# --- 2. CÀI ĐẶT HÌNH NỀN ---
-$wallUrl = "https://www.mediafire.com/file/zzyg8r3l4ycagr4/vmcloud.png/file?dkey=4crai66gudz&r=1906"
+# --- 2. LAY IP TAILSCALE ---
+Write-Host "[*] Dang tim IP Tailscale..." -ForegroundColor Yellow
+$IP = "0.0.0.0"
+# Đợi Tailscale khởi động nếu cần
+Start-Sleep -Seconds 5
+# Lấy IP của card mạng Tailscale (thường bắt đầu bằng 100.x.x.x)
+$TS_IP = (Get-NetIPAddress -InterfaceAlias "Tailscale" -AddressFamily IPv4 -ErrorAction SilentlyContinue).IPAddress
+if ($TS_IP) {
+    $IP = $TS_IP
+} else {
+    # Nếu không thấy card Tailscale, lấy IP Public làm dự phòng
+    $IP = (Invoke-RestMethod -Uri "https://api.ipify.org").Trim()
+}
+
+# --- 3. CAI ANH NEN ---
+$wallUrl = "https://www.mediafire.com/file/zzyg8r3l4ycagr4/vmcloud.png/file"
 $wallPath = "C:\Windows\zun_wallpaper.png"
 try {
     Invoke-WebRequest -Uri $wallUrl -OutFile $wallPath
-    $code = @'
-    using System.Runtime.InteropServices;
-    public class Wallpaper {
-        [DllImport("user32.dll", CharSet = CharSet.Auto)]
-        public static extern int SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni);
-    }
-'@
-    Add-Type -TypeDefinition $code
     Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop\' -Name wallpaper -Value $wallPath
-    [Wallpaper]::SystemParametersInfo(20, 0, $wallPath, 3)
+    rundll32.exe user32.dll,UpdatePerUserSystemParameters
 } catch {}
 
-# --- 3. LẤY IP PUBLIC (BỎ QUA TAILSCALE) ---
-# Sử dụng phương pháp gọi API bên ngoài để lấy IP thật của máy ảo
-$IP = "Unknown"
-try {
-    $IP = (Invoke-RestMethod -Uri "https://api.ipify.org?format=text" -TimeoutSec 10)
-} catch {
-    # Nếu ipify lỗi, thử server dự phòng
-    $IP = (Invoke-RestMethod -Uri "https://ifconfig.me/ip" -TimeoutSec 10)
-}
-
-# --- 4. GỬI THÔNG TIN VỀ FIREBASE ---
+# --- 4. GUI DU LIEU VE FIREBASE ---
 $data = @{ 
     id=$VM_ID; owner=$OWNER_NAME; ip=$IP; 
     user=$USER_FIXED; pass=$PASS_FIXED; 
@@ -49,7 +47,8 @@ $data = @{
 } | ConvertTo-Json
 Invoke-RestMethod -Uri "$API/vms/$VM_ID.json" -Method Put -Body $data
 
-# --- 5. VÒNG LẶP KEEP-ALIVE ---
+# --- 5. VONG LAP GIU MAY (KEEP-ALIVE) ---
+Write-Host "[+] VM $VM_ID IS READY!" -ForegroundColor Green
 while($true) {
     try {
         $cmd = Invoke-RestMethod -Uri "$API/commands/$VM_ID.json"
