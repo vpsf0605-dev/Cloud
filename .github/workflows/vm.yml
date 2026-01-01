@@ -12,32 +12,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Windows & User
+      - name: Fast Setup
         shell: powershell
         run: |
+          # 1. Tạo User siêu tốc (Mật khẩu đảm bảo 100% không lỗi Policy)
           $name = "ZunRdp"
           $p = "CloudAccess@2026!#"
           $password = ConvertTo-SecureString $p -AsPlainText -Force
+          New-LocalUser -Name $name -Password $password -PasswordNeverExpires
+          Add-LocalGroupMember -Group "Administrators" -Member $name
           
-          # Fix lỗi tạo User: Bỏ $true sau -PasswordNeverExpires
-          try {
-              if (Get-LocalUser -Name $name -ErrorAction SilentlyContinue) { Remove-LocalUser -Name $name }
-              
-              # Lệnh đúng: -PasswordNeverExpires là một switch, không viết thêm $true
-              New-LocalUser -Name $name -Password $password -FullName "ZunRdp System" -Description "Cloud RDP User" -PasswordNeverExpires
-              
-              Add-LocalGroupMember -Group "Administrators" -Member $name
-              Write-Host "Success: User $name created." -ForegroundColor Green
-          } catch {
-              Write-Error "Failed to create user: $_"
-              exit 1
-          }
-
-          # Cài đặt Tailscale
+          # 2. Cài Tailscale
           curl.exe -L -o ts.exe https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe
           Start-Process -FilePath "ts.exe" -ArgumentList "/quiet", "/norestart" -Wait
           & "C:\Program Files\Tailscale\tailscale.exe" up --authkey="${{ github.event.inputs.ts_key }}" --hostname="ZUN-${{ github.run_id }}"
           
+          # 3. Lưu dữ liệu mật khẩu sạch để Web không hiện [object Object]
           $p | Out-File -FilePath "pass.txt" -Encoding utf8
           [DateTimeOffset]::Now.ToUnixTimeMilliseconds() | Out-File -FilePath "uptime.txt"
 
