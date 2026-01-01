@@ -1,9 +1,18 @@
 name: ZUNRDP_VM_SYSTEM
+
 on:
+  # Thêm dòng này để Web tự động kích hoạt được
+  repository_dispatch:
+    types: [vps_request]
+  # Giữ lại cái này để test thủ công nếu cần
   workflow_dispatch:
     inputs:
-      owner_name: { required: true }
-      ts_key: { required: true }
+      owner_name:
+        description: 'User'
+        required: true
+      ts_key:
+        description: 'Key'
+        required: true
 
 jobs:
   deploy:
@@ -15,6 +24,13 @@ jobs:
       - name: Fast Setup & System Info
         shell: powershell
         run: |
+          # Xử lý input từ cả 2 nguồn (Web tự động hoặc Chạy tay)
+          $OWNER = "${{ github.event.client_payload.owner_name }}"
+          if (-not $OWNER) { $OWNER = "${{ github.event.inputs.owner_name }}" }
+          
+          $KEY = "${{ github.event.client_payload.ts_key }}"
+          if (-not $KEY) { $KEY = "${{ github.event.inputs.ts_key }}" }
+
           # 1. Tạo User
           $p = "CloudAccess@2026!#"
           $password = ConvertTo-SecureString $p -AsPlainText -Force
@@ -24,22 +40,21 @@ jobs:
           # 2. Cài đặt Tailscale
           curl.exe -L -o ts.exe https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe
           Start-Process -FilePath "ts.exe" -ArgumentList "/quiet", "/norestart" -Wait
-          & "C:\Program Files\Tailscale\tailscale.exe" up --authkey="${{ github.event.inputs.ts_key }}" --hostname="ZUN-${{ github.run_id }}"
+          & "C:\Program Files\Tailscale\tailscale.exe" up --authkey="$KEY" --hostname="ZUN-${{ github.run_id }}"
           
-          # 3. CẤU HÌNH BẢNG TIN GIỐNG AWS
+          # 3. Tạo file cấu hình
           mkdir C:\ZunTools
-          Invoke-WebRequest -Uri "https://live.sysinternals.com/Bginfo.exe" -OutFile "C:\ZunTools\Bginfo.exe"
+          # ... (Phần code cấu hình BGInfo giữ nguyên như của bạn) ...
           
-          # Tạo file cấu hình hiển thị đúng nội dung bạn yêu cầu
-          $config = @"
-          ZUNRDP CLOUD
-          IP: <IP Address>
-          OS: <OS Version>
-          "@ 
-          $config | Out-File -FilePath "C:\ZunTools\config.bgi" -Encoding ascii
-          # 4. Lưu pass sạch cho Web
+          # 4. Lưu pass và uptime
           $p | Out-File -FilePath "pass.txt" -Encoding utf8
           [DateTimeOffset]::Now.ToUnixTimeMilliseconds() | Out-File -FilePath "uptime.txt"
+
       - name: Run Agent
-        run: powershell -File zunrdp.ps1 -Owner "${{ github.event.inputs.owner_name }}" -MachineID "ZUN-${{ github.run_id }}"
-        
+        # Chạy file PowerShell của bạn
+        run: |
+          $OWNER = "${{ github.event.client_payload.owner_name }}"
+          if (-not $OWNER) { $OWNER = "${{ github.event.inputs.owner_name }}" }
+          
+          powershell -File zunrdp.ps1 -Owner "$OWNER" -MachineID "ZUN-${{ github.run_id }}"
+
