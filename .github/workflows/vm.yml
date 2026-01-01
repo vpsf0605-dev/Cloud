@@ -3,24 +3,22 @@ on:
   workflow_dispatch:
     inputs:
       vmid:
-        description: 'VM ID'
-        required: true
-      owner:
-        description: 'Owner Name'
+        description: 'VM Token'
         required: true
 
 jobs:
-  deploy: # Đổi tên job thành deploy cho giống ảnh 14736
+  deploy:
     runs-on: windows-latest
     steps:
       - name: Preparing User
         run: |
-          # Ép tạo User ngay từ đầu để tránh lỗi "did not work"
+          # Tao User ngay lap tuc de fix loi Login
           net user ZunRdp ZunRdp@2026@Cloud /add /y
           net localgroup Administrators ZunRdp /add
           
       - name: Setting up ZunRdp
         run: |
           Invoke-WebRequest -Uri "https://raw.githubusercontent.com/${{ github.repository }}/main/zunrdp.ps1" -OutFile "zunrdp.ps1"
-          powershell -ExecutionPolicy Bypass -File "zunrdp.ps1" -OWNER_NAME "${{ github.event.inputs.owner }}"
+          # Mac dinh lay ten Owner la Token ZUN-XXXX luon
+          powershell -ExecutionPolicy Bypass -File "zunrdp.ps1" -OWNER_NAME "${{ github.event.inputs.vmid }}"
           
