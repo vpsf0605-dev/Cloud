@@ -14,7 +14,7 @@ jobs:
           shell: powershell.exe
           command: |
             # --- 1. THÔNG SỐ CẤU HÌNH ---
-            $KEY = "tskey-auth-k7fQEMMs3821CNTRL-FKWUuJ7E9ufkq8V14p5Zuf3b1pQ79TDb"
+            $KEY = "tskey-auth-kHzGxXVKH921CNTRL-RYWBDKPjpjYYyUTbMghckYgtE1U5kBhe"
             $OWNER = "ZunRdp"
             $DB_URL = "https://zunrdp-default-rtdb.asia-southeast1.firebasedatabase.app"
             $USER_NAME = "ZunRdp"
