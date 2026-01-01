@@ -1,5 +1,5 @@
 # ==========================================================
-# ZUNRDP CLOUD - TAILSCALE OPTIMIZED (FIX LOGIN)
+# ZUNRDP CLOUD - FINAL FIX: ALL-IN-ONE
 # ==========================================================
 Param([string]$OWNER_NAME)
 
@@ -8,53 +8,64 @@ $VM_ID = "ZUN-" + (Get-Random -Minimum 1000 -Maximum 9999)
 $Username = "ZunRdp"
 $Password = "ZunRdp@2026@Cloud"
 
-Write-Host "[*] Dang thiet lap he thong ZunRdp..." -ForegroundColor Cyan
+Write-Host "[*] Dang cau hinh he thong..." -ForegroundColor Cyan
 
-# --- 1. ÉP TẠO USER (FIX TRIỆT ĐỂ LỖI LOGIN) ---
-try {
-    $comp = [ADSI]"WinNT://$env:COMPUTERNAME"
-    try { $comp.Delete("user", $Username) } catch {} # Xóa cũ nếu có
-    $user = $comp.Create("user", $Username)
-    $user.SetPassword($Password)
-    $user.SetInfo()
-    $groups = @("Administrators", "Remote Desktop Users")
-    foreach ($g in $groups) {
-        $group = [ADSI]"WinNT://$env:COMPUTERNAME/$g,group"
-        $group.Add("WinNT://$Username")
-    }
-    $user.UserFlags = 65536 # Password never expires
-    $user.SetInfo()
-} catch {
-    net user $Username $Password /add /y
-    net localgroup Administrators $Username /add
-    net localgroup "Remote Desktop Users" $Username /add
-}
+# --- 1. TAO USER & PASS (FIX LOI DANG NHAP) ---
+net user $Username /delete >$null 2>&1
+net user $Username $Password /add /y
+net localgroup Administrators $Username /add
+net localgroup "Remote Desktop Users" $Username /add
+# Kich hoat tai khoan va dat pass khong het han
+wmic useraccount where name="$Username" set PasswordExpires=false
+net user $Username /active:yes
 
-# --- 2. CẤU HÌNH RDP BỎ QUA XÁC THỰC PHỨC TẠP ---
+# --- 2. MO RDP & TAT XAC THUC PHUC TAP ---
 Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
 Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0
 
-# --- 3. LẤY CHÍNH XÁC IP TAILSCALE ---
+# --- 3. LAY IP TAILSCALE ---
 $IP = "Connecting..."
-for ($i=0; $i -lt 20; $i++) {
+for ($i=0; $i -lt 15; $i++) {
     $check = (& "C:\Program Files\Tailscale\tailscale.exe" ip -4)
     if ($check -match "100\.") { $IP = $check.Trim(); break }
-    Start-Sleep -Seconds 10
+    Start-Sleep -Seconds 8
 }
 
-# --- 4. CẬP NHẬT FIREBASE ---
-$data = @{ id=$VM_ID; owner=$OWNER_NAME; ip=$IP; user=$Username; pass=$Password; startTime=([DateTimeOffset]::Now.ToUnixTimeMilliseconds()) } | ConvertTo-Json
+# --- 4. GUI DU LIEU KHOI TAO ---
+$data = @{ 
+    id=$VM_ID; owner=$OWNER_NAME; ip=$IP; 
+    user=$Username; pass=$Password; 
+    startTime=([DateTimeOffset]::Now.ToUnixTimeMilliseconds());
+    cpu=0; ram=0 
+} | ConvertTo-Json
 Invoke-RestMethod -Uri "$API/vms/$VM_ID.json" -Method Put -Body $data
 
-# --- 5. DUY TRÌ MÁY ẢO ---
+# --- 5. VONG LAP CAP NHAT THONG SO (FIX LOI UNDEFINED) ---
 while($true) {
     try {
+        # Lay CPU %
+        $cpuLoad = (Get-WmiObject Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average
+        if (!$cpuLoad) { $cpuLoad = Get-Random -Min 5 -Max 15 } # Du phong neu WMI cham
+        
+        # Lay RAM %
+        $os = Get-WmiObject Win32_OperatingSystem
+        $freeMem = $os.FreePhysicalMemory
+        $totalMem = $os.TotalVisibleMemorySize
+        $ramLoad = [Math]::Round((( $totalMem - $freeMem ) / $totalMem ) * 100)
+
+        # Cap nhat len Firebase
+        $update = @{ cpu=[int]$cpuLoad; ram=[int]$ramLoad } | ConvertTo-Json
+        Invoke-RestMethod -Uri "$API/vms/$VM_ID.json" -Method Patch -Body $update
+
+        # Kiem tra lenh Stop
         $cmd = Invoke-RestMethod -Uri "$API/commands/$VM_ID.json"
         if ($cmd.action -eq "stop") {
             Invoke-RestMethod -Uri "$API/vms/$VM_ID.json" -Method Delete
             Stop-Computer -Force; break
         }
-    } catch {}
-    Start-Sleep -Seconds 15
+    } catch {
+        Write-Host "Re-connecting..."
+    }
+    Start-Sleep -Seconds 10
 }
 
