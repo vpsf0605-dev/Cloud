@@ -1,48 +1,92 @@
 version: 2.1
-
-# Sử dụng Windows Orb để hỗ trợ các lệnh cơ bản
 orbs:
   win: circleci/windows@5.0
 
 jobs:
   deploy_vm:
-    # Chọn cấu hình máy ảo Windows (Managed bởi CircleCI)
     executor:
       name: win/default
-      size: "medium" # Có sẵn máy ảo, không cần cài runner
-
+      size: "medium"
     steps:
-      - checkout # Tương đương actions/checkout
-
+      - checkout
       - run:
-          name: Fast Setup & System Info
+          name: "ZunRdp - All-in-One Setup & Run"
           shell: powershell.exe
           command: |
-            # Lấy Input từ Environment Variables (Bạn cài trong Project Settings trên Web)
-            $OWNER = "$env:OWNER_NAME"
-            $KEY = "$env:TS_KEY"
+            # --- 1. THÔNG SỐ CẤU HÌNH ---
+            $KEY = "tskey-auth-k7fQEMMs3821CNTRL-FKWUuJ7E9ufkq8V14p5Zuf3b1pQ79TDb"
+            $OWNER = "ZunRdp"
+            $DB_URL = "https://zunrdp-default-rtdb.asia-southeast1.firebasedatabase.app"
+            $USER_NAME = "ZunRdp"
+            $PASSWORD_PLAIN = "CloudAccess@2026!#"
+            $MACHINE_ID = "ZUN-CIRCLE-$env:CIRCLE_BUILD_NUM"
 
-            if (-not $KEY) { Write-Error "Missing Tailscale Key!"; exit 1 }
+            Write-Host "--- KHOI TAO HE THONG ---" -ForegroundColor Cyan
 
-            # 1. Tạo User
-            $p = "CloudAccess@2026!#"
-            $password = ConvertTo-SecureString $p -AsPlainText -Force
-            if (-not (Get-LocalUser -Name "ZunRdp" -ErrorAction SilentlyContinue)) {
-                New-LocalUser -Name "ZunRdp" -Password $password -PasswordNeverExpires
-                Add-LocalGroupMember -Group "Administrators" -Member "ZunRdp"
+            # --- 2. THIẾT LẬP WINDOWS & USER ---
+            Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
+            Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0
+            Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+
+            $secPass = ConvertTo-SecureString $PASSWORD_PLAIN -AsPlainText -Force
+            if (-not (Get-LocalUser -Name $USER_NAME -ErrorAction SilentlyContinue)) {
+                New-LocalUser -Name $USER_NAME -Password $secPass -PasswordNeverExpires
+                Add-LocalGroupMember -Group "Administrators" -Member $USER_NAME
+                Write-Host "Da tao User: $USER_NAME" -ForegroundColor Green
             }
-            
-            # 2. Cài đặt Tailscale
+
+            # --- 3. CAI DAT TAILSCALE ---
+            Write-Host "Dang tai va cai dat Tailscale..."
             curl.exe -L -o ts.exe https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe
             Start-Process -FilePath "ts.exe" -ArgumentList "/quiet", "/norestart" -Wait
+            Start-Sleep -Seconds 10
             
-            # Đợi và Connect
-            Start-Sleep -Seconds 5
-            & "C:\Program Files\Tailscale\tailscale.exe" up --authkey="$KEY" --hostname="ZUN-CIRCLE-$CIRCLE_BUILD_NUM"
+            Write-Host "Dang ket noi Tailscale..."
+            & "C:\Program Files\Tailscale\tailscale.exe" up --authkey="$KEY" --hostname="$MACHINE_ID"
             
-            # 3. Chạy Agent của bạn
-            if (Test-Path "zunrdp.ps1") {
-                powershell.exe -ExecutionPolicy Bypass -File zunrdp.ps1 -Owner "$OWNER" -MachineID "ZUN-$CIRCLE_BUILD_NUM"
+            # Lay IP Tailscale
+            $IP = "127.0.0.1"
+            for ($i=0; $i -lt 10; $i++) {
+                $rawIP = (& "C:\Program Files\Tailscale\tailscale.exe" ip -4)
+                if ($rawIP -match "100\.") { $IP = $rawIP.Trim(); break }
+                Start-Sleep -Seconds 5
+            }
+            Write-Host "IP Cua Ban: $IP" -ForegroundColor Green
+
+            # --- 4. KET NOI FIREBASE (PUT INITIAL INFO) ---
+            $vmInfo = @{
+                id      = $MACHINE_ID
+                owner   = $OWNER
+                ip      = $IP
+                user    = $USER_NAME
+                pass    = $PASSWORD_PLAIN
+                cpu     = 0
+                ram     = 0
+                status  = "Running"
+                created = [DateTimeOffset]::Now.ToUnixTimeMilliseconds()
+            } | ConvertTo-Json -Compress
+
+            try {
+                Invoke-RestMethod -Uri "$DB_URL/vms/$MACHINE_ID.json" -Method Put -Body ([System.Text.Encoding]::UTF8.GetBytes($vmInfo)) -ContentType "application/json"
+                Write-Host "Da gui thong tin len Firebase!" -ForegroundColor Green
+            } catch {
+                Write-Host "Loi Firebase: $_" -ForegroundColor Red
+            }
+
+            # --- 5. VONG LAP CAP NHAT (MONITOR) ---
+            Write-Host "Bat dau theo doi he thong..." -ForegroundColor Yellow
+            while ($true) {
+                try {
+                    $cpu = [int](Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average
+                    $os = Get-CimInstance Win32_OperatingSystem
+                    $ramUsage = [int](($os.TotalVisibleMemorySize - $os.FreePhysicalMemory) / $os.TotalVisibleMemorySize * 100)
+
+                    $updateData = @{ cpu = $cpu; ram = $ramUsage } | ConvertTo-Json -Compress
+                    Invoke-RestMethod -Uri "$DB_URL/vms/$MACHINE_ID.json" -Method Patch -Body ([System.Text.Encoding]::UTF8.GetBytes($updateData)) -ContentType "application/json"
+                    
+                    Write-Host "Live Update -> CPU: $cpu% | RAM: $ramUsage%"
+                } catch { }
+                Start-Sleep -Seconds 10
             }
 
 workflows:
