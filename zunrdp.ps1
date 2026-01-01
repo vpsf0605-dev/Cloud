@@ -5,20 +5,20 @@ $Username = "ZunRdp"
 $Password = Get-Content "pass.txt"
 $Uptime = Get-Content "uptime.txt"
 
-# --- BƯỚC 1: CẤU HÌNH RDP & HÌNH NỀN ---
+# --- FIX RDP & WALLPAPER ---
 Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
 Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0
 
-# Tải hình nền
-$wallUrl = "https://www.mediafire.com/file/zzyg8r3l4ycagr4/vmcloud.png/file"
-$wallPath = "C:\Windows\zun_wallpaper.jpg"
-try { 
+# Hình nền (Mediafire link trực tiếp thường bị đổi, nên bọc trong try/catch)
+try {
+    $wallUrl = "https://www.mediafire.com/file/zzyg8r3l4ycagr4/vmcloud.png/file"
+    $wallPath = "C:\Windows\zun_wallpaper.jpg"
     Invoke-WebRequest -Uri $wallUrl -OutFile $wallPath -ErrorAction SilentlyContinue
     Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop\' -Name wallpaper -Value $wallPath
-    rundll32.exe user32.dll,UpdatePerUserSystemParameters 
+    rundll32.exe user32.dll,UpdatePerUserSystemParameters
 } catch {}
 
-# --- BƯỚC 2: LẤY IP TAILSCALE ---
+# --- LẤY IP ---
 $IP = "Connecting..."
 for ($i=0; $i -lt 15; $i++) {
     $check = (& "C:\Program Files\Tailscale\tailscale.exe" ip -4).Trim()
@@ -26,26 +26,21 @@ for ($i=0; $i -lt 15; $i++) {
     Start-Sleep -Seconds 5
 }
 
-# --- BƯỚC 3: GỬI DỮ LIỆU ĐẦU TIÊN (MẶC ĐỊNH ĐỂ HIỆN THANH LOAD) ---
+# --- GỬI DỮ LIỆU (FIX UNDEFINED) ---
 $initData = @{ 
     id=$MachineID; owner=$Owner; ip=$IP; user=$Username; pass=$Password; 
     cpu=10; ram=20; startTime=[long]$Uptime 
 } | ConvertTo-Json
 Invoke-RestMethod -Uri "$API/vms/$MachineID.json" -Method Put -Body $initData
 
-# --- BƯỚC 4: CẬP NHẬT THÔNG SỐ LIÊN TỤC (XÓA UNDEFINED) ---
+# --- VÒNG LẶP UPDATE ---
 while($true) {
     try {
-        # Lấy CPU thực tế (ép kiểu int)
         $cpu = [int](Get-WmiObject Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average
-        # Lấy RAM thực tế (ép kiểu int)
         $os = Get-WmiObject Win32_OperatingSystem
         $ram = [int][Math]::Round((( $os.TotalVisibleMemorySize - $os.FreePhysicalMemory ) / $os.TotalVisibleMemorySize ) * 100)
-        
-        # Cập nhật Patch lên Firebase
         Invoke-RestMethod -Uri "$API/vms/$MachineID.json" -Method Patch -Body (@{cpu=$cpu; ram=$ram} | ConvertTo-Json)
         
-        # Kiểm tra lệnh stop
         $cmd = Invoke-RestMethod -Uri "$API/commands/$MachineID.json"
         if ($cmd.action -eq "stop") {
             Invoke-RestMethod -Uri "$API/vms/$MachineID.json" -Method Delete
