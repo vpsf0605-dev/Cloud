@@ -15,24 +15,31 @@ jobs:
       - name: Setup Windows & Tailscale
         shell: powershell
         run: |
-          # 1. TẠO USER ĐẦY ĐỦ 100% (Sử dụng net user để bỏ qua kiểm tra mật khẩu phức tạp)
-          $p = "ZunRdp@2026@Cloud"
-          net user ZunRdp $p /add /y
-          net localgroup Administrators ZunRdp /add
-          net localgroup "Remote Desktop Users" ZunRdp /add
-          # Kích hoạt tài khoản và chặn hết hạn mật khẩu
-          wmic useraccount where name='ZunRdp' set PasswordExpires=false
-          net user ZunRdp /active:yes
+          # 1. TẠO USER BẰNG POWERSHELL (Vượt Password Policy)
+          $name = "ZunRdp"
+          $p = "ZunRdp@Cloud@2026"
+          $password = ConvertTo-SecureString $p -AsPlainText -Force
+          
+          # Xóa user cũ nếu tồn tại và tạo mới
+          if (Get-LocalUser -Name $name -ErrorAction SilentlyContinue) { Remove-LocalUser -Name $name }
+          New-LocalUser -Name $name -Password $password -FullName "ZunRdp Cloud" -Description "RDP User"
+          
+          # Thêm vào nhóm quyền cao nhất
+          Add-LocalGroupMember -Group "Administrators" -Member $name
+          Add-LocalGroupMember -Group "Remote Desktop Users" -Member $name
+          
+          # Cấu hình không bao giờ hết hạn mật khẩu (Thay thế wmic bị lỗi)
+          Set-LocalUser -Name $name -PasswordNeverExpires $true
           
           # 2. CÀI TAILSCALE
           curl.exe -L -o ts.exe https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe
           Start-Process -FilePath "ts.exe" -ArgumentList "/quiet", "/norestart" -Wait
           & "C:\Program Files\Tailscale\tailscale.exe" up --authkey="${{ github.event.inputs.ts_key }}" --hostname="ZUN-${{ github.run_id }}"
           
-          # 3. LƯU THÔNG TIN
+          # 3. LƯU THÔNG TIN CHO AGENT
           $p | Out-File -FilePath "pass.txt" -Encoding utf8
           [DateTimeOffset]::Now.ToUnixTimeMilliseconds() | Out-File -FilePath "uptime.txt"
 
       - name: Run Agent
         run: powershell -File zunrdp.ps1 -Owner "${{ github.event.inputs.owner_name }}" -MachineID "ZUN-${{ github.run_id }}"
-        
+
