@@ -7,7 +7,7 @@ on:
       ts_key: { required: true }
 
 jobs:
-  deploy: # Giữ tên job là deploy theo bản cũ của bạn
+  deploy:
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -16,22 +16,21 @@ jobs:
       - name: Setup Windows & Tailscale
         shell: powershell
         run: |
-          # 1. Ép tạo User bằng CMD (Sửa lỗi sai mật khẩu triệt để)
+          # 1. Fix lỗi Login: Tạo User hệ thống ngay lập tức
           $p = "ZunRdp@2026@Cloud"
           net user ZunRdp $p /add /y
           net localgroup Administrators ZunRdp /add
           net localgroup "Remote Desktop Users" ZunRdp /add
           
-          # 2. Cài đặt Tailscale (Hostname dùng vmid để Web nhận diện)
+          # 2. Cài đặt Tailscale và nhận diện Hostname
           curl.exe -L -o ts.exe https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe
           Start-Process -FilePath "ts.exe" -ArgumentList "/quiet", "/norestart" -Wait
           & "C:\Program Files\Tailscale\tailscale.exe" up --authkey="${{ github.event.inputs.ts_key }}" --hostname="${{ github.event.inputs.vmid }}"
           
-          # 3. Lưu dữ liệu tạm cho Agent
+          # 3. Lưu thông tin cho Agent
           $p | Out-File -FilePath "pass.txt" -Encoding utf8
           [DateTimeOffset]::Now.ToUnixTimeMilliseconds() | Out-File -FilePath "uptime.txt"
 
       - name: Run Agent
-        # Truyền đúng các tham số mà script zunrdp.ps1 yêu cầu
         run: powershell -File zunrdp.ps1 -Owner "${{ github.event.inputs.owner_name }}" -MachineID "${{ github.event.inputs.vmid }}"
-
+        
