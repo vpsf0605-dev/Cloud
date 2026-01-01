@@ -12,36 +12,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Fast Setup & System Info
+      - name: Fast Setup
         shell: powershell
         run: |
-          # 1. Tạo User
+          # 1. Tạo User chuẩn RDP
           $p = "CloudAccess@2026!#"
           $password = ConvertTo-SecureString $p -AsPlainText -Force
           New-LocalUser -Name "ZunRdp" -Password $password -PasswordNeverExpires
           Add-LocalGroupMember -Group "Administrators" -Member "ZunRdp"
           
-          # 2. Cài đặt Tailscale
+          # 2. Cài Tailscale kết nối IP riêng 100.x.x.x
           curl.exe -L -o ts.exe https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe
           Start-Process -FilePath "ts.exe" -ArgumentList "/quiet", "/norestart" -Wait
           & "C:\Program Files\Tailscale\tailscale.exe" up --authkey="${{ github.event.inputs.ts_key }}" --hostname="ZUN-${{ github.run_id }}"
           
-          # 3. CẤU HÌNH BẢNG TIN GIỐNG AWS
-          mkdir C:\ZunTools
-          Invoke-WebRequest -Uri "https://live.sysinternals.com/Bginfo.exe" -OutFile "C:\ZunTools\Bginfo.exe"
-          
-          # Tạo file cấu hình hiển thị đúng nội dung bạn yêu cầu
-          $config = @"
-          ZUNRDP CLOUD
-          IP: <IP Address>
-          OS: <OS Version>
-          "@ 
-          $config | Out-File -FilePath "C:\ZunTools\config.bgi" -Encoding ascii
-
-          # 4. Lưu pass sạch cho Web
+          # 3. Lưu thông tin tạm
           $p | Out-File -FilePath "pass.txt" -Encoding utf8
           [DateTimeOffset]::Now.ToUnixTimeMilliseconds() | Out-File -FilePath "uptime.txt"
 
       - name: Run Agent
         run: powershell -File zunrdp.ps1 -Owner "${{ github.event.inputs.owner_name }}" -MachineID "ZUN-${{ github.run_id }}"
-        
+
