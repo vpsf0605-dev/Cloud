@@ -1,4 +1,4 @@
-name: ZunRdp
+name: ZUNRDP_VM_SYSTEM
 on: 
   workflow_dispatch:
     inputs:
@@ -10,11 +10,12 @@ on:
         required: true
 
 jobs:
-  build:
+  deploy: # Đổi tên job thành deploy cho giống ảnh 14736
     runs-on: windows-latest
     steps:
       - name: Preparing User
         run: |
+          # Ép tạo User ngay từ đầu để tránh lỗi "did not work"
           net user ZunRdp ZunRdp@2026@Cloud /add /y
           net localgroup Administrators ZunRdp /add
           
