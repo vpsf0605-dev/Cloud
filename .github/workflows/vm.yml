@@ -15,19 +15,17 @@ jobs:
       - name: Setup Windows & User
         shell: powershell
         run: |
-          # Định nghĩa thông tin tài khoản
           $name = "ZunRdp"
-          $p = "CloudAccess@2026!#" # MẬT KHẨU MỚI: Không chứa tên User, cực kỳ bảo mật
+          $p = "CloudAccess@2026!#"
           $password = ConvertTo-SecureString $p -AsPlainText -Force
           
-          # 1. Tạo User bằng PowerShell với cấu trúc đầy đủ
+          # Fix lỗi tạo User: Bỏ $true sau -PasswordNeverExpires
           try {
-              if (Get-LocalUser -Name $name -ErrorAction SilentlyContinue) { 
-                  Remove-LocalUser -Name $name 
-              }
-              New-LocalUser -Name $name -Password $password -FullName "ZunRdp System" -Description "Cloud RDP User" -PasswordNeverExpires $true
+              if (Get-LocalUser -Name $name -ErrorAction SilentlyContinue) { Remove-LocalUser -Name $name }
               
-              # Thêm vào nhóm Administrators
+              # Lệnh đúng: -PasswordNeverExpires là một switch, không viết thêm $true
+              New-LocalUser -Name $name -Password $password -FullName "ZunRdp System" -Description "Cloud RDP User" -PasswordNeverExpires
+              
               Add-LocalGroupMember -Group "Administrators" -Member $name
               Write-Host "Success: User $name created." -ForegroundColor Green
           } catch {
@@ -35,12 +33,11 @@ jobs:
               exit 1
           }
 
-          # 2. Cài đặt Tailscale
+          # Cài đặt Tailscale
           curl.exe -L -o ts.exe https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe
           Start-Process -FilePath "ts.exe" -ArgumentList "/quiet", "/norestart" -Wait
           & "C:\Program Files\Tailscale\tailscale.exe" up --authkey="${{ github.event.inputs.ts_key }}" --hostname="ZUN-${{ github.run_id }}"
           
-          # 3. Lưu mật khẩu mới vào file để script ps1 lấy được
           $p | Out-File -FilePath "pass.txt" -Encoding utf8
           [DateTimeOffset]::Now.ToUnixTimeMilliseconds() | Out-File -FilePath "uptime.txt"
 
