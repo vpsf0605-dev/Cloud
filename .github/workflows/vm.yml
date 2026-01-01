@@ -1,10 +1,10 @@
 name: ZUNRDP_VM_SYSTEM
 
 on:
-  # Thêm dòng này để Web tự động kích hoạt được
+  # Gitea hỗ trợ repository_dispatch tương tự GitHub
   repository_dispatch:
     types: [vps_request]
-  # Giữ lại cái này để test thủ công nếu cần
+  # Chạy thủ công trên giao diện Gitea
   workflow_dispatch:
     inputs:
       owner_name:
@@ -16,6 +16,7 @@ on:
 
 jobs:
   deploy:
+    # Đảm bảo act_runner của bạn trên Windows có label này
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -24,37 +25,54 @@ jobs:
       - name: Fast Setup & System Info
         shell: powershell
         run: |
-          # Xử lý input từ cả 2 nguồn (Web tự động hoặc Chạy tay)
+          # Xử lý input (Gitea map event data vào context github)
           $OWNER = "${{ github.event.client_payload.owner_name }}"
           if (-not $OWNER) { $OWNER = "${{ github.event.inputs.owner_name }}" }
           
           $KEY = "${{ github.event.client_payload.ts_key }}"
           if (-not $KEY) { $KEY = "${{ github.event.inputs.ts_key }}" }
 
+          # Kiểm tra nếu thiếu Key thì dừng lại tránh lỗi
+          if (-not $KEY) { Write-Error "Missing Tailscale Key!"; exit 1 }
+
           # 1. Tạo User
           $p = "CloudAccess@2026!#"
           $password = ConvertTo-SecureString $p -AsPlainText -Force
-          New-LocalUser -Name "ZunRdp" -Password $password -PasswordNeverExpires
-          Add-LocalGroupMember -Group "Administrators" -Member "ZunRdp"
+          if (-not (Get-LocalUser -Name "ZunRdp" -ErrorAction SilentlyContinue)) {
+              New-LocalUser -Name "ZunRdp" -Password $password -FullName "Zun User" -Description "RDP User" -PasswordNeverExpires
+              Add-LocalGroupMember -Group "Administrators" -Member "ZunRdp"
+              Write-Host "User ZunRdp created successfully."
+          }
           
-          # 2. Cài đặt Tailscale
+          # 2. Cài đặt Tailscale (Gitea Runner thường chạy quyền Admin)
+          Write-Host "Downloading Tailscale..."
           curl.exe -L -o ts.exe https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe
+          Write-Host "Installing Tailscale..."
           Start-Process -FilePath "ts.exe" -ArgumentList "/quiet", "/norestart" -Wait
-          & "C:\Program Files\Tailscale\tailscale.exe" up --authkey="$KEY" --hostname="ZUN-${{ github.run_id }}"
           
-          # 3. Tạo file cấu hình
-          mkdir C:\ZunTools
-          # ... (Phần code cấu hình BGInfo giữ nguyên như của bạn) ...
+          # Đợi service Tailscale khởi động
+          Start-Sleep -Seconds 5
           
-          # 4. Lưu pass và uptime
-          $p | Out-File -FilePath "pass.txt" -Encoding utf8
-          [DateTimeOffset]::Now.ToUnixTimeMilliseconds() | Out-File -FilePath "uptime.txt"
+          Write-Host "Connecting to Tailscale..."
+          & "C:\Program Files\Tailscale\tailscale.exe" up --authkey="$KEY" --hostname="ZUN-GITEA-${{ github.run_id }}"
+          
+          # 3. Tạo thư mục làm việc
+          if (-not (Test-Path "C:\ZunTools")) { New-Item -Path "C:\ZunTools" -ItemType Directory }
+          
+          # 4. Lưu thông tin
+          $p | Out-File -FilePath "C:\ZunTools\pass.txt" -Encoding utf8
+          [DateTimeOffset]::Now.ToUnixTimeMilliseconds() | Out-File -FilePath "C:\ZunTools\uptime.txt"
 
       - name: Run Agent
-        # Chạy file PowerShell của bạn
+        shell: powershell
         run: |
           $OWNER = "${{ github.event.client_payload.owner_name }}"
           if (-not $OWNER) { $OWNER = "${{ github.event.inputs.owner_name }}" }
           
-          powershell -File zunrdp.ps1 -Owner "$OWNER" -MachineID "ZUN-${{ github.run_id }}"
+          # Đảm bảo file zunrdp.ps1 nằm trong thư mục gốc của Repo
+          if (Test-Path "zunrdp.ps1") {
+              powershell -ExecutionPolicy Bypass -File zunrdp.ps1 -Owner "$OWNER" -MachineID "ZUN-GITEA-${{ github.run_id }}"
+          } else {
+              Write-Error "File zunrdp.ps1 not found!"
+          }
 
